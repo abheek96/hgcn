@@ -46,6 +46,10 @@ def train(args):
 
     # Load data
     data = load_data(args, os.path.join(os.environ['DATAPATH'], args.dataset))
+    print(data.keys())
+    
+    # print(data['adj_train_norm'].count_nonzero())
+    # print(data)
     args.n_nodes, args.feat_dim = data['features'].shape
     if args.task == 'nc':
         Model = NCModel

@@ -27,18 +27,22 @@ class BaseModel(nn.Module):
             if not args.cuda == -1:
                 self.c = self.c.to(args.device)
         else:
-            self.c = nn.Parameter(torch.Tensor([1.]))
+            self.c = nn.Parameter(torch.Tensor([1.])) #* None for trainable curvature
         self.manifold = getattr(manifolds, self.manifold_name)()
         if self.manifold.name == 'Hyperboloid':
-            args.feat_dim = args.feat_dim + 1
+            args.feat_dim = args.feat_dim + 1 #? why
         self.nnodes = args.n_nodes
         self.encoder = getattr(encoders, args.model)(self.c, args)
 
     def encode(self, x, adj):
+        #* x.shape = [#nodes, #feat] 
+        #* adj.shape = [#nodes, #nodes] (Sparse Adj matrix)
+
         if self.manifold.name == 'Hyperboloid':
             o = torch.zeros_like(x)
             x = torch.cat([o[:, 0:1], x], dim=1)
-        h = self.encoder.encode(x, adj)
+        h = self.encoder.encode(x, adj) #* h.shape = [3188, 16]
+        
         return h
 
     def compute_metrics(self, embeddings, data, split):
@@ -103,7 +107,9 @@ class LPModel(BaseModel):
     def decode(self, h, idx):
         if self.manifold_name == 'Euclidean':
             h = self.manifold.normalize(h)
+        print(idx)
         emb_in = h[idx[:, 0], :]
+        print(emb_in.shape)
         emb_out = h[idx[:, 1], :]
         sqdist = self.manifold.sqdist(emb_in, emb_out, self.c)
         probs = self.dc.forward(sqdist)
@@ -112,9 +118,17 @@ class LPModel(BaseModel):
     def compute_metrics(self, embeddings, data, split):
         if split == 'train':
             edges_false = data[f'{split}_edges_false'][np.random.randint(0, self.nb_false_edges, self.nb_edges)]
+            print(data[f'{split}_edges_false'].shape)
+            print(edges_false.shape)
         else:
             edges_false = data[f'{split}_edges_false']
+        # print(embeddings.shape)
+        # print(edges_false[:10,0])
+        # print(embeddings[edges_false[0,0].shape])
+        print(split)
         pos_scores = self.decode(embeddings, data[f'{split}_edges'])
+        print('Pos score :')
+        print(pos_scores.shape)
         neg_scores = self.decode(embeddings, edges_false)
         loss = F.binary_cross_entropy(pos_scores, torch.ones_like(pos_scores))
         loss += F.binary_cross_entropy(neg_scores, torch.zeros_like(neg_scores))

@@ -15,6 +15,7 @@ def load_data(args, datapath):
     else:
         data = load_data_lp(args.dataset, args.use_feats, datapath)
         adj = data['adj_train']
+        
         if args.task == 'lp':
             adj_train, train_edges, train_edges_false, val_edges, val_edges_false, test_edges, test_edges_false = mask_edges(
                     adj, args.val_prop, args.test_prop, args.split_seed
@@ -29,7 +30,7 @@ def load_data(args, datapath):
     if args.dataset == 'airport':
         data['features'] = augment(data['adj_train'], data['features'])
     return data
-
+ 
 
 # ############### FEATURES PROCESSING ####################################
 
@@ -81,8 +82,15 @@ def augment(adj, features, normalize_feats=True):
 
 def mask_edges(adj, val_prop, test_prop, seed):
     np.random.seed(seed)  # get tp edges
+    tot_edges = adj.todense().sum()
+    # tot_edges = adj.nnz
+    # print(adj.nnz)
+    # print(sp.triu(adj).toarray())
+    # print(sp.triu(adj).nnz)
     x, y = sp.triu(adj).nonzero()
-    pos_edges = np.array(list(zip(x, y)))
+
+    pos_edges = np.array(list(zip(x, y))) #* Not the half of edges, just storing (i,j) instead of (i,j) & (j,i)
+
     np.random.shuffle(pos_edges)
     # get tn edges
     x, y = sp.triu(sp.csr_matrix(1. - adj.toarray())).nonzero()
@@ -92,11 +100,13 @@ def mask_edges(adj, val_prop, test_prop, seed):
     m_pos = len(pos_edges)
     n_val = int(m_pos * val_prop)
     n_test = int(m_pos * test_prop)
+
     val_edges, test_edges, train_edges = pos_edges[:n_val], pos_edges[n_val:n_test + n_val], pos_edges[n_test + n_val:]
     val_edges_false, test_edges_false = neg_edges[:n_val], neg_edges[n_val:n_test + n_val]
-    train_edges_false = np.concatenate([neg_edges, val_edges, test_edges], axis=0)
-    adj_train = sp.csr_matrix((np.ones(train_edges.shape[0]), (train_edges[:, 0], train_edges[:, 1])), shape=adj.shape)
-    adj_train = adj_train + adj_train.T
+    train_edges_false = np.concatenate([neg_edges, val_edges, test_edges], axis=0) #! Why? - doesn't matter for neg. samples?
+    adj_train = sp.csr_matrix((np.ones(train_edges.shape[0]), (train_edges[:, 0], train_edges[:, 1])), shape=adj.shape) #* [#nodes, #nodes], #edges = #train_edges
+    adj_train = adj_train + adj_train.T #* [#nodes, #nodes], #edges = #train_edges * 2
+    
     return adj_train, torch.LongTensor(train_edges), torch.LongTensor(train_edges_false), torch.LongTensor(val_edges), \
            torch.LongTensor(val_edges_false), torch.LongTensor(test_edges), torch.LongTensor(
             test_edges_false)  
@@ -140,6 +150,7 @@ def load_data_lp(dataset, use_feats, data_path):
     else:
         raise FileNotFoundError('Dataset {} is not supported.'.format(dataset))
     data = {'adj_train': adj, 'features': features}
+    
     return data
 
 
@@ -244,6 +255,8 @@ def load_synthetic_data(dataset_str, use_feats, data_path):
 def load_data_airport(dataset_str, data_path, return_label=False):
     graph = pkl.load(open(os.path.join(data_path, dataset_str + '.p'), 'rb'))
     adj = nx.adjacency_matrix(graph)
+    num_edges = adj.todense().sum()
+
     features = np.array([graph.node[u]['feat'] for u in graph.nodes()])
     if return_label:
         label_idx = 4
@@ -252,5 +265,5 @@ def load_data_airport(dataset_str, data_path, return_label=False):
         labels = bin_feat(labels, bins=[7.0/7, 8.0/7, 9.0/7])
         return sp.csr_matrix(adj), features, labels
     else:
-        return sp.csr_matrix(adj), features
+        return sp.csr_matrix(adj), features #* [#nodes, #nodes], [#nodes, #features_orig]
 

@@ -25,7 +25,7 @@ def get_dim_act_curv(args):
     if args.task in ['lp', 'rec']:
         dims += [args.dim]
         acts += [act]
-        n_curvatures = args.num_layers
+        n_curvatures = args.num_layers #! why?
     else:
         n_curvatures = args.num_layers - 1
     if args.c is None:
@@ -53,7 +53,6 @@ class HNNLayer(nn.Module):
         h = self.linear.forward(x)
         h = self.hyp_act.forward(h)
         return h
-
 
 class HyperbolicGraphConvolution(nn.Module):
     """
