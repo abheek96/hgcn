@@ -7,6 +7,9 @@ import logging
 import os
 import pickle
 import time
+import matplotlib.pyplot as plt
+
+from typing import cast
 
 import numpy as np
 import optimizers
@@ -48,8 +51,12 @@ def train(args):
     data = load_data(args, os.path.join(os.environ['DATAPATH'], args.dataset))
     print(data.keys())
     
-    # print(data['adj_train_norm'].count_nonzero())
-    # print(data)
+    dict_idx_test = data['dict_idx_test']
+    degrees = set([v for v in dict_idx_test.values()])
+    # print(degrees)
+    # deg_0 = {k for k,v in list(dict_idx_test.items()) if v == 1}
+    # print(len(deg_0))
+    
     args.n_nodes, args.feat_dim = data['features'].shape
     if args.task == 'nc':
         Model = NCModel
@@ -91,6 +98,8 @@ def train(args):
     counter = 0
     best_val_metrics = model.init_metric_dict()
     best_test_metrics = None
+    # best_test_metrics_high_deg = None
+    # best_test_metrics_low_deg = None
     best_emb = None
     for epoch in range(args.epochs):
         t = time.time()
@@ -120,7 +129,9 @@ def train(args):
                 logging.info(" ".join(['Epoch: {:04d}'.format(epoch + 1), format_metrics(val_metrics, 'val')]))
             if model.has_improved(best_val_metrics, val_metrics):
                 best_test_metrics = model.compute_metrics(embeddings, data, 'test')
-                best_emb = embeddings.cpu()
+                # best_test_metrics_high_deg = model.compute_metrics(embeddings, data, 'test_high')
+                # best_test_metrics_low_deg = model.compute_metrics(embeddings, data, 'test_low')
+                best_emb = embeddings.cpu() 
                 if args.save:
                     np.save(os.path.join(save_dir, 'embeddings.npy'), best_emb.detach().numpy())
                 best_val_metrics = val_metrics
@@ -130,15 +141,40 @@ def train(args):
                 if counter == args.patience and epoch > args.min_epochs:
                     logging.info("Early stopping")
                     break
-
+    # TODO Visualise embeddings!!!!
     logging.info("Optimization Finished!")
     logging.info("Total time elapsed: {:.4f}s".format(time.time() - t_total))
+
+    acc_deg = {}
+    for d in degrees:
+        data[f'idx_{d}'] = list({k for k,v in list(dict_idx_test.items()) if v == d})
+        test_metric_deg = model.compute_metrics(best_emb, data, f'{d}')
+        # logging.info(f"Accuracy for set of {d}-degree nodes : {list(test_metric_deg.items())[1][1]}")
+        acc = list(test_metric_deg.items())[1][1]
+        acc_deg.update({f'{d}': acc})
+    
+    #TODO: implement a weighted average for evaluating the accuracies for different degree groups
+    x = list(map(int, list(acc_deg.keys())))
+    y = list(map(float, list(acc_deg.values())))
+    plt.scatter(x, y)
+    plt.savefig('check-accuracy-hgcn.png')
+    print(acc_deg)
+
+    # if not best_test_metrics_high_deg:
     if not best_test_metrics:
         model.eval()
         best_emb = model.encode(data['features'], data['adj_train_norm'])
         best_test_metrics = model.compute_metrics(best_emb, data, 'test')
+        # best_test_metrics_high_deg = model.compute_metrics(best_emb, data, 'test_high')
+        # best_test_metrics_low_deg = model.compute_metrics(best_emb, data, 'test_low')
+    
+    # logging.info(" ".join(["Test set high degree nodes results:", format_metrics(best_test_metrics_high_deg, 'test_high')]))
+    # logging.info(" ".join(["Test set low degree nodes results:", format_metrics(best_test_metrics_low_deg, 'test_low')]))
     logging.info(" ".join(["Val set results:", format_metrics(best_val_metrics, 'val')]))
-    logging.info(" ".join(["Test set results:", format_metrics(best_test_metrics, 'test')]))
+    logging.info(" ".join([f"Test set nodes results :", format_metrics(best_test_metrics, 'test')]))
+
+
+
     if args.save:
         np.save(os.path.join(save_dir, 'embeddings.npy'), best_emb.cpu().detach().numpy())
         if hasattr(model.encoder, 'att_adj'):
