@@ -7,6 +7,11 @@ import networkx as nx
 import numpy as np
 import scipy.sparse as sp
 import torch
+import pandas as pd
+import itertools
+import random
+
+import matplotlib.pyplot as plt
 
 
 def load_data(args, datapath):
@@ -24,11 +29,14 @@ def load_data(args, datapath):
             data['train_edges'], data['train_edges_false'] = train_edges, train_edges_false
             data['val_edges'], data['val_edges_false'] = val_edges, val_edges_false
             data['test_edges'], data['test_edges_false'] = test_edges, test_edges_false
+    
     data['adj_train_norm'], data['features'] = process(
             data['adj_train'], data['features'], args.normalize_adj, args.normalize_feats
     )
+    
     if args.dataset == 'airport':
         data['features'] = augment(data['adj_train'], data['features'])
+
     return data
  
 
@@ -129,6 +137,8 @@ def split_data(labels, val_prop, test_prop, seed):
                                                                                                    nb_val + nb_test:]
     idx_val_neg, idx_test_neg, idx_train_neg = neg_idx[:nb_val], neg_idx[nb_val:nb_val + nb_test], neg_idx[
                                                                                                    nb_val + nb_test:]
+    
+
     return idx_val_pos + idx_val_neg, idx_test_pos + idx_test_neg, idx_train_pos + idx_train_neg
 
 
@@ -142,7 +152,7 @@ def bin_feat(feat, bins):
 
 def load_data_lp(dataset, use_feats, data_path):
     if dataset in ['cora', 'pubmed']:
-        adj, features = load_citation_data(dataset, use_feats, data_path)[:2]
+        adj, features = load_citation_data(dataset, use_feats, data_path, split_seed)[:2]
     elif dataset == 'disease_lp':
         adj, features = load_synthetic_data(dataset, use_feats, data_path)[:2]
     elif dataset == 'airport':
@@ -159,9 +169,33 @@ def load_data_lp(dataset, use_feats, data_path):
 
 def load_data_nc(dataset, use_feats, data_path, split_seed):
     if dataset in ['cora', 'pubmed']:
-        adj, features, labels, idx_train, idx_val, idx_test = load_citation_data(
+        # adj, features, labels, idx_train, idx_val, idx_test = load_citation_data(
+        #     dataset, use_feats, data_path, split_seed
+        # )
+        # adj, features, labels, idx_train, idx_val, idx_test_high, idx_test_low = load_citation_data(
+        #     dataset, use_feats, data_path, split_seed
+        # )
+        adj, features, labels, idx_train, idx_val, idx_test, dict_idx_test = load_citation_data(
             dataset, use_feats, data_path, split_seed
         )
+        labels = torch.LongTensor(labels)
+        data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train, 'idx_val': idx_val, 'idx_test': idx_test,
+                 'dict_idx_test': dict_idx_test}
+        # data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train, 'idx_val': idx_val, 'idx_test': idx_test}
+        # data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train, 
+        #         'idx_val': idx_val, 'idx_test': idx_test}
+
+    elif dataset == 'cora-raw':
+        # adj, features, labels, idx_train, idx_val, dict_idx_test = load_cora(
+        #     dataset, data_path, split_seed
+        # )
+        adj, features, labels, idx_train, idx_val, idx_test = load_cora(data_path, split_seed)
+        labels = torch.LongTensor(labels)
+        # data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train,
+        #          'idx_val': idx_val, 'dict_idx_test': dict_idx_test}
+        data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train,
+                 'idx_val': idx_val, 'idx_test' : idx_test}
+
     else:
         if dataset == 'disease_nc':
             adj, features, labels = load_synthetic_data(dataset, use_feats, data_path)
@@ -171,18 +205,88 @@ def load_data_nc(dataset, use_feats, data_path, split_seed):
             val_prop, test_prop = 0.15, 0.15
         else:
             raise FileNotFoundError('Dataset {} is not supported.'.format(dataset))
+        
         idx_val, idx_test, idx_train = split_data(labels, val_prop, test_prop, seed=split_seed)
+        print(f'IDX TRAIN LEN {len(idx_train)}')
+        print(f'IDX VAL LEN {len(idx_val)}')
+        print(f'IDX TEST LEN {len(idx_test)}')
 
-    labels = torch.LongTensor(labels)
-    data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train, 'idx_val': idx_val, 'idx_test': idx_test}
+        random_state = np.random.RandomState(split_seed)
+        G = nx.from_scipy_sparse_matrix(adj)
+        dict_idx_test = {k:v for k,v in dict(G.degree).items() if k in idx_test}
+        idx_test_high_deg = [i[0] for i in list(dict_idx_test.items()) if i[1] > 2]
+        idx_test_not_high = list(set(idx_test) - set(idx_test_high_deg))
+        idx_test_low_deg = random_state.choice(idx_test_not_high, size=len(idx_test_high_deg))
+
+        labels = torch.LongTensor(labels)
+        # data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train, 'idx_val': idx_val, 'idx_test': idx_test}
+        data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train, 'idx_val': idx_val,
+                 'idx_test_high': idx_test_high_deg, 'idx_test_low': idx_test_low_deg}
+
+    # labels = torch.LongTensor(labels)
+    # data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train, 'idx_val': idx_val, 'idx_test': idx_test}
     return data
 
 
 # ############### DATASETS ####################################
 
+def load_cora(data_path, split_seed):
+    random_state = np.random.RandomState(split_seed)
 
-def load_citation_data(dataset_str, use_feats, data_path, split_seed=None):
-    names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'graph']
+    feature_names = ["w_{}".format(ii) for ii in range(1433)]
+    column_names =  feature_names + ["subject"]
+    
+    node_data = pd.read_csv(os.path.join(data_path, 'cora.content'), sep='\t', header=None, names=column_names)
+    edgelist = pd.read_csv(os.path.join(data_path, 'cora.cites'), sep='\t', header=None, names=['target', 'source'])
+
+    node_data = node_data.sort_index()
+    node_data = node_data.reset_index()
+    node_data = node_data.rename(columns={'index':'node_id'})
+
+    node_mapping = {i[0]:i[1] for i in zip(node_data['node_id'], [i for i in range(2708)])}
+
+    edgelist['target'] = edgelist['target'].map(node_mapping)
+    edgelist['source'] = edgelist['source'].map(node_mapping)
+
+    labels_map = {'Genetic_Algorithms':0, 'Reinforcement_Learning':1, 'Theory':2,
+       'Rule_Learning':3, 'Case_Based':4, 'Probabilistic_Methods':5,
+       'Neural_Networks':6}
+    
+    node_data['subject'] = node_data['subject'].map(labels_map)
+    
+    labels = node_data['subject'].to_numpy()
+    features = node_data.iloc[:,1:-1].to_numpy(dtype=float)
+
+    idx_list = list(map(lambda x : np.where(node_data['subject'] == x)[0], list(range(7))))
+
+    idx_train = [random_state.choice(list(i), size=20, replace=False) for i in idx_list] # 20 labels per class in training set
+    idx_train = list(itertools.chain.from_iterable(idx_train)) # flatten list
+
+    idx_rest = list(set(node_data.index) - set(idx_train))
+
+    idx_val = random_state.choice(idx_rest, size=500, replace=False)
+    # idx_test = list(set(idx_rest) - set(idx_val))
+    idx_test = random_state.choice(list(set(idx_rest) - set(idx_val)), size=1000, replace=False)
+
+    edges = [(x,y) for x,y  in zip(edgelist['target'], edgelist['source'])]
+    G = nx.Graph(edges)
+    adj = nx.adjacency_matrix(G)
+
+    deg_test = [list(dict(G.degree).items())[i][1] for i in idx_test]
+    threshold = np.percentile(deg_test, q=75)
+    dict_idx_test = {k:v for k,v in dict(G.degree).items() if k in idx_test}
+    
+    # idx_test_high = [i[0] for i in list(dict_idx_test.items()) if i[1] > threshold]
+    # idx_not_high = list(set(idx_test) - set(idx_test_high))
+    # idx_test_low = random_state.choice(idx_not_high, size=len(idx_test_high))
+
+    return adj, features, labels, idx_train, idx_val, dict_idx_test
+    # return adj, features, labels, idx_train, idx_val, idx_test
+
+
+def load_citation_data(dataset_str, use_feats, data_path, split_seed):
+    random_state = np.random.RandomState(split_seed)
+    names = ['x', 'y', 'tx', 'ty', 'allx', 'ally', 'graph'] 
     objects = []
     for i in range(len(names)):
         with open(os.path.join(data_path, "ind.{}.{}".format(dataset_str, names[i])), 'rb') as f:
@@ -209,7 +313,22 @@ def load_citation_data(dataset_str, use_feats, data_path, split_seed=None):
     adj = nx.adjacency_matrix(nx.from_dict_of_lists(graph))
     if not use_feats:
         features = sp.eye(adj.shape[0])
-    return adj, features, labels, idx_train, idx_val, idx_test
+
+    G = nx.from_scipy_sparse_matrix(adj)
+    # deg_test = [list(dict(G.degree).items())[i][1] for i in idx_test]
+    # # threshold = np.percentile(deg_test, q=75)
+    # threshold = 10.0
+    # #TODO: what if the training set only consists of high deg nodes?
+
+    dict_idx_test = {k:v for k,v in dict(G.degree).items() if k in idx_test}
+    # idx_test_high = [i[0] for i in list(dict_idx_test.items()) if i[1] > threshold]
+    # idx_not_high = list(set(idx_test) - set(idx_test_high))
+    # idx_test_low = random_state.choice(idx_not_high, size=len(idx_test_high))
+
+
+    # return adj, features, labels, idx_train, idx_val, idx_test
+    return adj, features, labels, idx_train, idx_val, idx_test, dict_idx_test
+    # return adj, features, labels, idx_train, idx_val, idx_test_high, idx_test_low
 
 
 def parse_index_file(filename):
@@ -249,6 +368,7 @@ def load_synthetic_data(dataset_str, use_feats, data_path):
     else:
         features = sp.eye(adj.shape[0])
     labels = np.load(os.path.join(data_path, "{}.labels.npy".format(dataset_str)))
+    print(labels)
     return sp.csr_matrix(adj), features, labels
 
 
