@@ -8,4 +8,3 @@ def acc_f1(output, labels, average='binary'):
     accuracy = accuracy_score(preds, labels)
     f1 = f1_score(preds, labels, average=average)
     return accuracy, f1
-
