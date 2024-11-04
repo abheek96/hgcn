@@ -1,6 +1,7 @@
 from __future__ import division
 from __future__ import print_function
 
+import warnings
 import datetime
 import json
 import logging
@@ -19,6 +20,8 @@ from models.base_models import NCModel, LPModel
 from utils.data_utils import load_data
 from utils.train_utils import get_dir_name, format_metrics
 
+import seaborn as sns
+
 
 def train(args):
     np.random.seed(args.seed)
@@ -30,6 +33,7 @@ def train(args):
     args.device = 'cuda:' + str(args.cuda) if int(args.cuda) >= 0 else 'cpu'
     args.patience = args.epochs if not args.patience else  int(args.patience)
     logging.getLogger().setLevel(logging.INFO)
+    warnings.simplefilter('ignore')
     if args.save:
         if not args.save_dir:
             dt = datetime.datetime.now()
@@ -53,9 +57,6 @@ def train(args):
     
     dict_idx_test = data['dict_idx_test']
     degrees = set([v for v in dict_idx_test.values()])
-    # print(degrees)
-    # deg_0 = {k for k,v in list(dict_idx_test.items()) if v == 1}
-    # print(len(deg_0))
     
     args.n_nodes, args.feat_dim = data['features'].shape
     if args.task == 'nc':
@@ -152,13 +153,19 @@ def train(args):
         # logging.info(f"Accuracy for set of {d}-degree nodes : {list(test_metric_deg.items())[1][1]}")
         acc = list(test_metric_deg.items())[1][1]
         acc_deg.update({f'{d}': acc})
-    
-    #TODO: implement a weighted average for evaluating the accuracies for different degree groups
-    x = list(map(int, list(acc_deg.keys())))
-    y = list(map(float, list(acc_deg.values())))
-    plt.scatter(x, y)
-    plt.savefig('check-accuracy-hgcn.png')
-    print(acc_deg)
+
+    # #TODO: implement a weighted average for evaluating the accuracies for different degree groups
+    # x = list(map(int, list(acc_deg.keys())))
+    # y = list(map(float, list(acc_deg.values())))
+    # fig, ax = plt.subplots(figsize=(8,6))
+
+    # sns.regplot(x=x, y=y, line_kws={"color": "red", "linewidth": 3, 'alpha': 0.4, "ls": "--"}, ax=ax, ci=None, order=1)
+    # ax.scatter(x, y, edgecolors='k')
+    # ax.set_title('GCN on Cora')
+    # ax.set_xlabel('Degree')
+    # ax.set_ylabel('Accuracy')
+    # plt.show()
+    # print(acc_deg)
 
     # if not best_test_metrics_high_deg:
     if not best_test_metrics:

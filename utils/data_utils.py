@@ -189,12 +189,12 @@ def load_data_nc(dataset, use_feats, data_path, split_seed):
         # adj, features, labels, idx_train, idx_val, dict_idx_test = load_cora(
         #     dataset, data_path, split_seed
         # )
-        adj, features, labels, idx_train, idx_val, idx_test = load_cora(data_path, split_seed)
+        adj, features, labels, idx_train, idx_val, idx_test, dict_idx_test = load_cora(data_path, split_seed)
         labels = torch.LongTensor(labels)
         # data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train,
         #          'idx_val': idx_val, 'dict_idx_test': dict_idx_test}
         data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train,
-                 'idx_val': idx_val, 'idx_test' : idx_test}
+                 'idx_val': idx_val, 'idx_test' : idx_test, 'dict_idx_test': dict_idx_test}
 
     else:
         if dataset == 'disease_nc':
@@ -212,16 +212,18 @@ def load_data_nc(dataset, use_feats, data_path, split_seed):
         print(f'IDX TEST LEN {len(idx_test)}')
 
         random_state = np.random.RandomState(split_seed)
-        G = nx.from_scipy_sparse_matrix(adj)
+        # G = nx.from_scipy_sparse_matrix(adj)
+        G = nx.from_scipy_sparse_array(adj)
         dict_idx_test = {k:v for k,v in dict(G.degree).items() if k in idx_test}
         idx_test_high_deg = [i[0] for i in list(dict_idx_test.items()) if i[1] > 2]
         idx_test_not_high = list(set(idx_test) - set(idx_test_high_deg))
         idx_test_low_deg = random_state.choice(idx_test_not_high, size=len(idx_test_high_deg))
 
         labels = torch.LongTensor(labels)
-        # data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train, 'idx_val': idx_val, 'idx_test': idx_test}
-        data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train, 'idx_val': idx_val,
-                 'idx_test_high': idx_test_high_deg, 'idx_test_low': idx_test_low_deg}
+        data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train,
+         'idx_val': idx_val, 'idx_test': idx_test}
+        # data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train, 'idx_val': idx_val,
+        #          'idx_test_high': idx_test_high_deg, 'idx_test_low': idx_test_low_deg}
 
     # labels = torch.LongTensor(labels)
     # data = {'adj_train': adj, 'features': features, 'labels': labels, 'idx_train': idx_train, 'idx_val': idx_val, 'idx_test': idx_test}
@@ -280,7 +282,7 @@ def load_cora(data_path, split_seed):
     # idx_not_high = list(set(idx_test) - set(idx_test_high))
     # idx_test_low = random_state.choice(idx_not_high, size=len(idx_test_high))
 
-    return adj, features, labels, idx_train, idx_val, dict_idx_test
+    return adj, features, labels, idx_train, idx_val, idx_test, dict_idx_test
     # return adj, features, labels, idx_train, idx_val, idx_test
 
 
@@ -314,7 +316,8 @@ def load_citation_data(dataset_str, use_feats, data_path, split_seed):
     if not use_feats:
         features = sp.eye(adj.shape[0])
 
-    G = nx.from_scipy_sparse_matrix(adj)
+    # G = nx.from_scipy_sparse_matrix(adj)
+    G = nx.from_scipy_sparse_array(adj)
     # deg_test = [list(dict(G.degree).items())[i][1] for i in idx_test]
     # # threshold = np.percentile(deg_test, q=75)
     # threshold = 10.0
@@ -368,7 +371,6 @@ def load_synthetic_data(dataset_str, use_feats, data_path):
     else:
         features = sp.eye(adj.shape[0])
     labels = np.load(os.path.join(data_path, "{}.labels.npy".format(dataset_str)))
-    print(labels)
     return sp.csr_matrix(adj), features, labels
 
 
